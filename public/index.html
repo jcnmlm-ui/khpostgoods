@@ -239,6 +239,37 @@
       color: var(--sd-wood-dark);
     }
 
+    /* ★ 搜尋列：輸入框 + 「只看新品」按鈕 */
+    .quick-search-box .qs-row { display: flex; gap: 10px; align-items: stretch; }
+    .quick-search-box .qs-row input { flex: 1 1 0; width: auto; min-width: 0; }
+    .btn-only-new {
+      flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
+      padding: 0 16px; font-family: inherit; font-size: 15px; font-weight: bold; white-space: nowrap;
+      color: var(--sd-wood-dark); background: var(--sd-parchment);
+      border: 4px solid var(--sd-border); border-radius: 12px; cursor: pointer;
+      box-shadow: inset 0 0 0 3px var(--sd-parchment-dark), 0 4px 0 rgba(0,0,0,0.1);
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn-only-new:hover:not(:disabled) { background: #fff8d6; }
+    .btn-only-new:active:not(:disabled) { transform: translateY(2px); }
+    .btn-only-new.active { background: var(--sd-hot); color: #fff; box-shadow: inset 0 0 0 3px rgba(0,0,0,0.18), 0 4px 0 rgba(0,0,0,0.1); }
+    .btn-only-new.active:hover:not(:disabled) { background: #e04a40; }
+    .btn-only-new:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn-only-new:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+
+    /* ★ NEW 新品徽章（右上角；「人氣 TOP」徽章在左上角，兩者可並存） */
+    .new-badge {
+      position: absolute; top: -10px; right: -10px; z-index: 10; pointer-events: none;
+      background: #ffd43b; color: var(--sd-border);
+      padding: 6px 12px; font-size: 13px; font-weight: bold; letter-spacing: 0.5px;
+      border: 3px solid var(--sd-border); border-radius: 4px;
+      box-shadow: 2px 4px 0px rgba(0,0,0,0.2);
+    }
+    /* 發行第 1~14 天（置頂期）：徽章有輕微呼吸動畫；第 15~30 天安靜顯示 */
+    .new-badge--fresh { animation: new-badge-pulse 1.8s ease-in-out infinite; }
+    @keyframes new-badge-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+    @media (prefers-reduced-motion: reduce) { .new-badge--fresh { animation: none; } }
+
     /* 商品網格與卡片 */
     .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 24px; }
     .p-card { 
@@ -495,6 +526,9 @@
       .p-price::before { font-size: 14px; }
       .btn-view-branch { margin: 0 10px 10px 10px; padding: 10px 5px; font-size: 13px; width: calc(100% - 20px); }
       .hot-badge { font-size: 11px; padding: 4px 8px; top: -8px; left: -8px; }
+      .new-badge { font-size: 11px; padding: 4px 8px; top: -8px; right: -6px; }
+      .quick-search-box .qs-row { gap: 8px; }
+      .btn-only-new { padding: 0 10px; font-size: 14px; gap: 4px; }
 
       #scrollToTopBtn { bottom: 20px; right: 20px; width: 50px; height: 50px; }
 
@@ -566,7 +600,12 @@
     </section>
 
     <section class="quick-search-box" id="quickSearchBox">
-      <input type="search" id="localSearchInput" aria-label="搜尋商品關鍵字" placeholder="輸入關鍵字在櫥窗中搜尋商品..." oninput="localFilterProducts()">
+      <div class="qs-row">
+        <input type="search" id="localSearchInput" aria-label="搜尋商品關鍵字" placeholder="輸入關鍵字在櫥窗中搜尋商品..." oninput="localFilterProducts()">
+        <button type="button" id="btnOnlyNew" class="btn-only-new" aria-pressed="false" onclick="toggleNewFilter()" disabled>
+          <i class="fa-solid fa-wand-magic-sparkles"></i>只看新品<span id="newCount"></span>
+        </button>
+      </div>
     </section>
 
     <article id="productContainer" class="product-grid">
@@ -667,6 +706,65 @@
     };
 
     let globalData = { products: [] }; 
+    // ═════════ ★ 新品高光期 ═════════
+    // 以「發行日」計算，發行當天算第 1 天（台灣時間）。
+    const NEW_BADGE_DAYS = 30;  // 第 1~30 天：顯示「NEW 新品」徽章
+    const NEW_PIN_DAYS   = 14;  // 第 1~14 天：徽章 + 置頂（第 15~30 天只留徽章，不置頂）
+    const NEW_PIN_MAX    = 6;   // 置頂數量上限，避免一次發行很多商品把人氣商品全擠到後面
+    let onlyNewFilter = false;
+
+    // 資料庫的發行日多半以民國年儲存（例：民國 113 年存成 0113-05-17），
+    // 轉成毫秒後會變成西元 113 年。這裡統一換算回正確的西元日期（UTC 午夜）；西元年的資料不受影響。
+    function normalizeRawDate(v) {
+      const n = Number(v);
+      if (!isFinite(n) || n === 0) return 0;
+      const d = new Date(n);
+      const y = d.getUTCFullYear();
+      if (y > 0 && y < 200) d.setUTCFullYear(y + 1911);
+      return d.getTime();
+    }
+
+    // 發行後第幾天（0 = 發行當天，以台灣日期計算）；沒有發行日或尚未發行則回傳 null
+    function productAgeDays(rawDate) {
+      if (!rawDate) return null;
+      const todayTW = Math.floor((Date.now() + 8 * 3600 * 1000) / 86400000) * 86400000;
+      const age = Math.round((todayTW - rawDate) / 86400000);
+      return age >= 0 ? age : null;
+    }
+
+    // 換算發行日、標記新品（需有庫存）與置頂名單
+    function markNewProducts(products) {
+      products.forEach(p => {
+        p.rawDate = normalizeRawDate(p.rawDate);
+        const age = productAgeDays(p.rawDate);
+        p._newAge = age;
+        p._isNew = p.hasStockCount > 0 && age !== null && age < NEW_BADGE_DAYS;
+        p._pinned = false;
+      });
+      products
+        .filter(p => p._isNew && p._newAge < NEW_PIN_DAYS)
+        .sort((a, b) => b.rawDate - a.rawDate)
+        .slice(0, NEW_PIN_MAX)
+        .forEach(p => { p._pinned = true; });
+    }
+
+    function toggleNewFilter() {
+      onlyNewFilter = !onlyNewFilter;
+      syncNewFilterButton();
+      localFilterProducts();
+    }
+
+    function syncNewFilterButton() {
+      const btn = document.getElementById('btnOnlyNew');
+      if (!btn) return;
+      const n = (globalData.products || []).filter(p => p._isNew).length;
+      document.getElementById('newCount').textContent = n > 0 ? ' (' + n + ')' : '';
+      btn.disabled = n === 0;
+      btn.classList.toggle('active', onlyNewFilter);
+      btn.setAttribute('aria-pressed', onlyNewFilter ? 'true' : 'false');
+      btn.title = n === 0 ? '目前沒有新品' : '只顯示發行 ' + NEW_BADGE_DAYS + ' 天內的新品';
+    }
+
     let isInitialLoadFromUrl = true;
     
     let userLat = null;
@@ -850,15 +948,23 @@
         const { data: products, error } = await supabaseClient.from('view_frontend_products').select('*');
         if (error) throw error;
 
+        // ★ 換算發行日（民國年→西元年），並標記新品與置頂名單
+        markNewProducts(products);
+
         products.sort((a, b) => {
           const aStock = a.hasStockCount > 0 ? 1 : 0;
           const bStock = b.hasStockCount > 0 ? 1 : 0;
           if (aStock !== bStock) return bStock - aStock; 
+          // ★ 新品置頂期（發行第 1~14 天）：排在有庫存商品的最前面，越新的越前面
+          if (a._pinned !== b._pinned) return a._pinned ? -1 : 1;
+          if (a._pinned && b._pinned && a.rawDate !== b.rawDate) return b.rawDate - a.rawDate;
           if (a.clicks !== b.clicks) return b.clicks - a.clicks; 
           return b.rawDate - a.rawDate; 
         });
 
         globalData.products = products;
+        onlyNewFilter = false;
+        syncNewFilterButton();
         
         // ★ SEO 優化：把資料寫進 JSON-LD
         injectJSONLD(globalData.products);
@@ -946,14 +1052,24 @@
         rootMargin: '200px 0px 200px 0px' 
       });
 
-      let topBadgeCount = 0;
-      
+      // ★ 人氣 TOP 1~3：只依「點擊數」排名（不受新品置頂影響）
+      const topRank = new Map();
+      filteredList
+        .filter(p => p.hasStockCount > 0 && p.clicks > 0)
+        .sort((a, b) => (b.clicks - a.clicks) || (b.rawDate - a.rawDate))
+        .slice(0, 3)
+        .forEach((p, i) => topRank.set(p.key, i + 1));
+
       filteredList.forEach((p, index) => {
         const hasStock = p.hasStockCount > 0;
         let badgeHtml = '';
-        if (hasStock && p.clicks > 0 && topBadgeCount < 3) {
-          topBadgeCount++;
-          badgeHtml = `<div class="hot-badge"><i class="fa-solid fa-star" style="color: #fdeca6; margin-right: 4px;"></i>人氣商品 TOP ${topBadgeCount}</div>`;
+        const rank = topRank.get(p.key);
+        if (rank) {
+          badgeHtml = `<div class="hot-badge"><i class="fa-solid fa-star" style="color: #fdeca6; margin-right: 4px;"></i>人氣商品 TOP ${rank}</div>`;
+        }
+        // ★ NEW 新品徽章（第 1~14 天有呼吸動畫，第 15~30 天安靜顯示）
+        if (p._isNew) {
+          badgeHtml += `<div class="new-badge${p._newAge < NEW_PIN_DAYS ? ' new-badge--fresh' : ''}"><i class="fa-solid fa-wand-magic-sparkles" style="margin-right: 4px;"></i>NEW 新品</div>`;
         }
 
         const outOfStockStyle = hasStock ? '' : 'opacity: 0.75; filter: grayscale(40%);';
@@ -1025,6 +1141,7 @@
     function localFilterProducts() {
       const searchText = document.getElementById('localSearchInput').value.toLowerCase();
       const filteredResults = globalData.products.filter(p => {
+        if (onlyNewFilter && !p._isNew) return false;
         const titleMatch = p.name.toLowerCase().includes(searchText);
         const barcodeMatch = String(p.barcode).toLowerCase().includes(searchText);
         return titleMatch || barcodeMatch;

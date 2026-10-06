@@ -2874,6 +2874,42 @@
       }
     }
 
+    // ═════════ ★ 新品高光期標示（需與前台 index.html 的設定一致） ═════════
+    const NEW_BADGE_DAYS = 30;  // 發行第 1~30 天：前台顯示「NEW 新品」徽章
+    const NEW_PIN_DAYS   = 14;  // 發行第 1~14 天：徽章 + 置頂；第 15~30 天只留徽章
+
+    // 發行日可能是民國年（例：0113-05-17 = 民國 113 年）或西元年，統一換算成西元日期（UTC 午夜）
+    function parsePublishDateMs(str) {
+      const m = String(str || '').match(/^(\d{1,4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
+      if (!m) return 0;
+      let y = +m[1];
+      if (y < 200) y += 1911;
+      const t = Date.UTC(y, +m[2] - 1, +m[3]);
+      return isNaN(t) ? 0 : t;
+    }
+
+    // 回傳「新品期剩 X 天」標籤的 HTML；不在新品期（或沒有發行日）則回傳空字串
+    function newPeriodTag(publishDate, qty, asBlock) {
+      const t = parsePublishDateMs(publishDate);
+      if (!t) return '';
+      const todayTW = Math.floor((Date.now() + 8 * 3600 * 1000) / 86400000) * 86400000;
+      const age = Math.round((todayTW - t) / 86400000);   // 0 = 發行當天
+      let html = '';
+      if (age < 0) {
+        html = `<span style="color:#94a3b8; font-size:12px;">尚未發行（${-age} 天後）</span>`;
+      } else if (age < NEW_BADGE_DAYS) {
+        const left = NEW_BADGE_DAYS - age;
+        const pinning = age < NEW_PIN_DAYS;
+        const stage = pinning ? `置頂中，剩 ${NEW_PIN_DAYS - age} 天` : '僅徽章，不置頂';
+        const noStock = Number(qty) > 0 ? '' : '・A庫無貨，前台暫不標示';
+        const style = pinning
+          ? 'background:#fef3c7; color:#b45309; border:1px solid #f59e0b;'
+          : 'background:#fffbeb; color:#92400e; border:1px dashed #fbbf24;';
+        html = `<span style="${style} padding:2px 6px; border-radius:4px; font-size:12px; font-weight:bold; white-space:nowrap;">🆕 新品期剩 ${left} 天<span style="font-weight:normal;">（${stage}${noStock}）</span></span>`;
+      }
+      return (html && asBlock) ? `<div>${html}</div>` : html;
+    }
+
     function renderAdmin(products) {
       const container = document.getElementById('adminProductContainer');
       container.innerHTML = '';
@@ -2898,6 +2934,7 @@
             <span class="admin-item-code" style="margin-top:6px; display:flex; flex-wrap:wrap; gap:10px; color:#475569;">
               <span style="color:#e07a5f; font-weight:bold;">$${p.price}</span>
               <span>發行日: ${p.publish_date}</span>
+              ${newPeriodTag(p.publish_date, p.qty)}
               <span style="background:#f1f5f9; padding:2px 6px; border-radius:4px; font-weight:bold;">A庫: ${qtyDisplay}</span>
             </span>
           </div>
@@ -3360,6 +3397,7 @@
             <div class="info-group">
               <div class="price">$${p.price}</div>
               <div class="date-label">發行日期：${p.date}</div>
+              ${newPeriodTag(p.date, p.qty, true)}
             </div>
             ${p.img ? `<button class="btn-img" onclick="openImg('${p.name}', '${p.img}')">圖片預覽</button>` : ''}
           </div>
@@ -3762,6 +3800,7 @@
             <div class="info-group">
               <div class="price">$${p.price}</div>
               <div class="date-label">發行日期：${p.date}</div>
+              ${newPeriodTag(p.date, p.qty, true)}
             </div>
             ${p.img ? `<button class="btn-img" onclick="openImg('${p.name}', '${p.img}')">圖片預覽</button>` : ''}
           </div>
