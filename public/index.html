@@ -1138,15 +1138,24 @@
       });
     }
 
+    // 資料庫的 view 在商品沒有填說明時，會自動補上這句預設文字；搜尋時要略過它，
+    // 否則搜「商品」「現場」之類的字，所有沒填說明的商品都會被搜出來。
+    // （若你改了 view 裡的預設文字，這裡也要一起改）
+    const DEFAULT_DESC = '目前尚未提供商品詳細說明，款式與規格請依現場實物為主。';
+
     function localFilterProducts() {
-      const searchText = document.getElementById('localSearchInput').value.toLowerCase();
-      const filteredResults = globalData.products.filter(p => {
-        if (onlyNewFilter && !p._isNew) return false;
+      const searchText = document.getElementById('localSearchInput').value.trim().toLowerCase();
+      const nameHits = [];   // 名稱或條碼符合：排前面
+      const descHits = [];   // 只有「商品說明」符合：排後面
+      globalData.products.forEach(p => {
+        if (onlyNewFilter && !p._isNew) return;
         const titleMatch = p.name.toLowerCase().includes(searchText);
         const barcodeMatch = String(p.barcode).toLowerCase().includes(searchText);
-        return titleMatch || barcodeMatch;
+        if (titleMatch || barcodeMatch) { nameHits.push(p); return; }
+        const desc = (p.desc && p.desc !== DEFAULT_DESC) ? String(p.desc).toLowerCase() : '';
+        if (desc.includes(searchText)) descHits.push(p);
       });
-      renderProducts(filteredResults);
+      renderProducts(nameHits.concat(descHits));
     }
 
     let currentGalleryImgs = [];
