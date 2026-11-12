@@ -431,6 +431,7 @@
               <div id="adminSelectionCount" class="selection-count">載入中...</div>
             </div>
             <div class="filters">
+              <button type="button" onclick="loadAdminData()" style="padding:12px 16px; border:1px solid var(--border-color); border-radius:8px; background:white; cursor:pointer; font-size:14px;">🔄 重新載入</button>
               <input type="search" id="adminSearchInput" placeholder="🔍 搜尋名稱、條碼、組合鍵、金額或庫存..." oninput="debounceFilterAdminProducts()">
               <select id="adminStatusFilter" onchange="filterAdminProducts()">
                 <option value="all">全部顯示</option>
@@ -688,6 +689,7 @@
               <select id="proxyBranchSelect" onchange="onProxyBranchChange()" style="min-width:200px; padding:12px; border:1px solid var(--border-color); border-radius:8px; font-size:14px; background:white; cursor:pointer;">
                 <option value="">請選擇支局...</option>
               </select>
+              <button type="button" onclick="if(currentProxyBranchId){loadProxyBranchData(currentProxyBranchId);}else{showCustomToast('請先選擇支局');}" style="padding:12px 16px; border:1px solid var(--border-color); border-radius:8px; background:white; cursor:pointer; font-size:14px;">🔄 重新載入</button>
               <input type="search" id="proxySearchInput" placeholder="🔍 搜尋商品名稱、條碼、組合鍵或金額..." oninput="filterProxyProducts()" disabled>
               <select id="proxyStatusFilter" onchange="filterProxyProducts()" disabled>
                 <option value="all">全部商品</option>
@@ -1782,7 +1784,9 @@
           kh_sort_order: (row.kh_sort_order === null || row.kh_sort_order === undefined) ? null : Number(row.kh_sort_order)
         }));
         globalMasterData = results;
-        if (khManageMode) { renderKhManageList(); } else { renderMasterProducts(globalMasterData); }
+        if (khManageMode) { renderKhManageList(); }
+        else if (document.getElementById('masterSearchInput').value.trim()) { filterMasterProducts(); }
+        else { renderMasterProducts(globalMasterData); }
       } catch (err) {
         alert('讀取失敗：' + err.message);
       }
@@ -2943,6 +2947,7 @@
       });
       container.style.display = 'grid';
       updateAdminCount();
+      filterAdminProducts(); // 重新載入後保留目前的搜尋/篩選條件
     }
 
     function updateAdminCount() {
@@ -3077,11 +3082,18 @@
         showCustomToast("大資料庫已成功覆蓋更新");
 
         document.getElementById('excelFile').value = '';
-        loadAdminData(); loadLeaderboard(); loadMasterData(); loadExtraStock();
+        loadLeaderboard(); loadExtraStock(); refreshAfterUpload();
       } catch (error) {
         showCustomToast("Excel 解析或上傳失敗！\n" + error.message);
       }
       btn.innerText = "開始合併並覆蓋"; btn.disabled = false;
+    }
+
+    // 上傳完成後，直接刷新各分頁資料（不必按 F5，也不會被登出）
+    async function refreshAfterUpload() {
+      const jobs = [loadAdminData(), loadMasterData()];
+      if (currentProxyBranchId) jobs.push(loadProxyBranchData(currentProxyBranchId));
+      await Promise.allSettled(jobs);
     }
 
     async function handleMasterUpload() {
@@ -3151,7 +3163,7 @@
         }
         
         document.getElementById('masterExcelFile').value = '';
-        loadMasterData();
+        refreshAfterUpload();
       } catch (error) {
         showCustomToast("Excel 解析或上傳失敗！\n" + error.message);
       }
@@ -3832,6 +3844,7 @@
       document.getElementById('proxyLoading').style.display = 'none';
       document.getElementById('proxyProductList').style.display = 'grid';
       document.getElementById('proxyControls').style.display = 'flex';
+      filterProxyProducts();
       updateProxyMobileFooter();
     }
 
