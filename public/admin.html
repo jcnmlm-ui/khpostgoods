@@ -3096,7 +3096,10 @@
           const data = await readFileAsArrayBuffer(file);
           const wb = XLSX.read(new Uint8Array(data), {type: 'array'});
           const sheetData = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1, defval: ""});
-          const dataRows = sheetData.slice(2).map(row => {
+          // 自動找資料起點：第一個「類別欄為兩位數字」的列，不論標題有幾列都適用
+          let startIdx = sheetData.findIndex(r => /^\d{2}$/.test(String(r[1] ?? '').trim()));
+          if (startIdx < 0) startIdx = sheetData.length;
+          const dataRows = sheetData.slice(startIdx).map(row => {
             const newRow = new Array(35).fill("");
             for(let i = 0; i < 35; i++) {
               if(row[i] !== undefined && row[i] !== null) newRow[i] = String(row[i]).trim();
@@ -3109,6 +3112,7 @@
         const existing = await fetchAllData('products_master', 'product_key');
         const existKeys = new Set(existing.map(r => r.product_key));
         const newInserts = [];
+        let skippedDup = 0;
         allMergedRows.forEach(row => {
           const cat = String(row[1]).trim();
           const type = String(row[2]).trim();
@@ -3126,6 +3130,8 @@
                       publish_date: String(row[8] || '').trim()
                   });
                   existKeys.add(key);
+              } else {
+                  skippedDup++;
               }
           }
         });
@@ -3138,7 +3144,11 @@
         }
 
         await logSystemAction(myAccount, `A權限批次匯入商品主檔：新增了 ${newInserts.length} 筆資料`);
-        showCustomToast(`✅ 匯入完成！`);
+        if (newInserts.length === 0) {
+          showCustomToast(`⚠️ 沒有新增任何商品（讀到 ${allMergedRows.length} 列，其中 ${skippedDup} 筆已存在）。請確認檔案內容！`);
+        } else {
+          showCustomToast(`✅ 匯入完成！新增 ${newInserts.length} 筆，略過重複 ${skippedDup} 筆`);
+        }
         
         document.getElementById('masterExcelFile').value = '';
         loadMasterData();
