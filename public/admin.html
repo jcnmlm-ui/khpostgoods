@@ -61,6 +61,11 @@
     .section-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px; flex-wrap: wrap; gap: 15px; }
     .header-left { flex: 1; min-width: 250px; }
     .header-left h3 { color: var(--text-main); margin: 0 0 5px 0; }
+    .title-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 5px; }
+    .title-row h3 { margin: 0; }
+    .btn-reload { flex: none; white-space: nowrap; padding: 6px 12px; border: 1px solid var(--border-color); border-radius: 999px; background: #fff; color: #475569; font-size: 13px; cursor: pointer; transition: 0.2s; }
+    .btn-reload:hover { background: #f1f5f9; border-color: #cbd5e0; }
+    .btn-reload:disabled { opacity: .6; cursor: wait; }
     .selection-count { font-size: 14px; font-weight: bold; color: #8da399; }
     
     .filters { display: flex; gap: 10px; flex: 2; min-width: 300px; justify-content: center; }
@@ -427,11 +432,10 @@
         <div class="box-container">
           <div class="section-header">
             <div class="header-left">
-              <h3>支局可上架商品權限</h3>
+              <div class="title-row"><h3>支局可上架商品權限</h3><button type="button" class="btn-reload" onclick="loadAdminData()">🔄 重新載入</button></div>
               <div id="adminSelectionCount" class="selection-count">載入中...</div>
             </div>
             <div class="filters">
-              <button type="button" onclick="loadAdminData()" style="padding:12px 16px; border:1px solid var(--border-color); border-radius:8px; background:white; cursor:pointer; font-size:14px;">🔄 重新載入</button>
               <input type="search" id="adminSearchInput" placeholder="🔍 搜尋名稱、條碼、組合鍵、金額或庫存..." oninput="debounceFilterAdminProducts()">
               <select id="adminStatusFilter" onchange="filterAdminProducts()">
                 <option value="all">全部顯示</option>
@@ -682,14 +686,13 @@
         <div class="box-container">
           <div class="section-header">
             <div class="header-left">
-              <h3>🏪 支局代管上架</h3>
+              <div class="title-row"><h3>🏪 支局代管上架</h3><button type="button" class="btn-reload" id="btnReloadProxy" onclick="reloadProxyPage()">🔄 重新載入</button></div>
               <div id="proxySelectionCount" class="selection-count">請先選擇要協助的支局</div>
             </div>
             <div class="filters">
               <select id="proxyBranchSelect" onchange="onProxyBranchChange()" style="min-width:200px; padding:12px; border:1px solid var(--border-color); border-radius:8px; font-size:14px; background:white; cursor:pointer;">
                 <option value="">請選擇支局...</option>
               </select>
-              <button type="button" onclick="if(currentProxyBranchId){loadProxyBranchData(currentProxyBranchId);}else{showCustomToast('請先選擇支局');}" style="padding:12px 16px; border:1px solid var(--border-color); border-radius:8px; background:white; cursor:pointer; font-size:14px;">🔄 重新載入</button>
               <input type="search" id="proxySearchInput" placeholder="🔍 搜尋商品名稱、條碼、組合鍵或金額..." oninput="filterProxyProducts()" disabled>
               <select id="proxyStatusFilter" onchange="filterProxyProducts()" disabled>
                 <option value="all">全部商品</option>
@@ -2951,8 +2954,8 @@
     }
 
     function updateAdminCount() {
-      const total = document.querySelectorAll('.admin-cb').length;
-      const checked = document.querySelectorAll('.admin-cb:checked').length;
+      const total = document.querySelectorAll('#adminProductContainer .admin-cb').length;
+      const checked = document.querySelectorAll('#adminProductContainer .admin-cb:checked').length;
       document.getElementById('adminSelectionCount').innerText = `共 ${total} 筆，已開放 ${checked} 筆`;
     }
 
@@ -2965,7 +2968,7 @@
     function filterAdminProducts() {
       const searchText = document.getElementById('adminSearchInput').value.toLowerCase();
       const statusFilter = document.getElementById('adminStatusFilter').value;
-      const items = document.querySelectorAll('.admin-item');
+      const items = document.querySelectorAll('#adminProductContainer .admin-item'); // 只限上架權限頁，避免抓到主檔維護／帳號管理的同名 class
 
       items.forEach(item => {
         const ds = item.dataset;
@@ -2989,14 +2992,14 @@
     }
 
     function toggleAllAdminCheckbox(checkState) {
-      document.querySelectorAll('.admin-item').forEach(item => {
+      document.querySelectorAll('#adminProductContainer .admin-item').forEach(item => {
         if (item.style.display !== 'none') item.querySelector('.admin-cb').checked = checkState;
       });
       updateAdminCount(); 
     }
 
     async function saveAdminSettings() {
-      const checkedBoxes = document.querySelectorAll('.admin-cb:checked');
+      const checkedBoxes = document.querySelectorAll('#adminProductContainer .admin-cb:checked');
       const selectedKeys = Array.from(checkedBoxes).map(cb => cb.value);
       
       const btnDesk = document.getElementById('btnSaveAdmin');
@@ -3089,9 +3092,32 @@
       btn.innerText = "開始合併並覆蓋"; btn.disabled = false;
     }
 
+    // 重新抓「允許上架」清單，給代管上架頁最上方「依商品全支局上／下架」的搜尋用
+    async function refreshBulkAllowlist() {
+      const allowlistData = await fetchAllData('global_allowlist', 'product_key');
+      bulkAllowlistSet = new Set(allowlistData.map(r => r.product_key));
+      const q = document.getElementById('bulkProductSearch');
+      if (q && q.value.trim()) onBulkProductSearch(); // 搜尋框有字就重新比對一次
+    }
+
+    // 代管上架頁的「重新載入」：主檔、開放清單、目前選的支局一起更新
+    async function reloadProxyPage() {
+      const btn = document.getElementById('btnReloadProxy');
+      btn.disabled = true; btn.innerText = '載入中...';
+      try {
+        const jobs = [loadMasterData(), refreshBulkAllowlist()];
+        if (currentProxyBranchId) jobs.push(loadProxyBranchData(currentProxyBranchId));
+        await Promise.all(jobs);
+        showCustomToast('已重新載入最新資料');
+      } catch (err) {
+        showCustomToast('重新載入失敗：' + err.message);
+      }
+      btn.disabled = false; btn.innerText = '🔄 重新載入';
+    }
+
     // 上傳完成後，直接刷新各分頁資料（不必按 F5，也不會被登出）
     async function refreshAfterUpload() {
-      const jobs = [loadAdminData(), loadMasterData()];
+      const jobs = [loadAdminData(), loadMasterData(), refreshBulkAllowlist()];
       if (currentProxyBranchId) jobs.push(loadProxyBranchData(currentProxyBranchId));
       await Promise.allSettled(jobs);
     }
